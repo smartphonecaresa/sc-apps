@@ -1,0 +1,61 @@
+name: Build & release device-control APKs
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "android/**"
+      - ".github/workflows/build-apk.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # No gradlew is committed (this sandbox had no network access to
+      # generate the wrapper jar), so Gradle itself is installed here instead.
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+
+      - name: Decode signing keystore
+        run: |
+          mkdir -p android/keystore
+          echo "${{ secrets.SC_KEYSTORE_BASE64 }}" | base64 -d > android/keystore/sc-release.jks
+
+      - name: Build + sign both flavors
+        working-directory: android
+        env:
+          SC_KEYSTORE_PATH: keystore/sc-release.jks
+          SC_KEYSTORE_PASSWORD: ${{ secrets.SC_KEYSTORE_PASSWORD }}
+          SC_KEY_ALIAS: ${{ secrets.SC_KEY_ALIAS }}
+          SC_KEY_PASSWORD: ${{ secrets.SC_KEY_PASSWORD }}
+        run: |
+          gradle :app:assembleShopRelease :app:assembleResellerRelease --no-daemon
+
+      - name: Collect APKs under the exact names the web app downloads
+        run: |
+          mkdir -p dist
+          cp android/app/build/outputs/apk/shop/release/app-shop-release.apk dist/SC-Shop.apk
+          cp android/app/build/outputs/apk/reseller/release/app-reseller-release.apk dist/SC-Reseller.apk
+          ls -la dist
+
+      - name: Publish a release (this is what releases/latest/download/... resolves to)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: "Device apps build #${{ github.run_number }}"
+          files: |
+            dist/SC-Shop.apk
+            dist/SC-Reseller.apk
+          make_latest: true
