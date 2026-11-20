@@ -129,9 +129,114 @@ class SCBridge(private val activity: MainActivity, private val webView: WebView)
         ctx.startActivity(i)
     }
 
+    // Richer lock screen: shop name, customer name, due date and the
+    // shop's phone number (for the "Call shop" button), on top of the
+    // existing message/amount. json = {"message","amount","shopName",
+    // "custName","dueDate","shopPhone"}. Also caches every field locally
+    // so the OfflineWatchdog can render the same screen with no network.
+    @JavascriptInterface
+    fun deviceLockRich(json: String) {
+        val o = try { JSONObject(json) } catch (e: Exception) { JSONObject() }
+        cacheLockInfo(json)
+        val i = Intent(ctx, LockActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            .putExtra("message", o.optString("message", "Please pay your installment to unlock."))
+            .putExtra("amount", o.optString("amount", ""))
+            .putExtra("shopName", o.optString("shopName", ""))
+            .putExtra("custName", o.optString("custName", ""))
+            .putExtra("dueDate", o.optString("dueDate", ""))
+            .putExtra("shopPhone", o.optString("shopPhone", ""))
+        ctx.startActivity(i)
+    }
+
     @JavascriptInterface
     fun deviceLockClear() {
         LockActivity.dismiss()
+    }
+
+    // Lightweight, non-blocking overlay — does NOT start lock task, the
+    // phone stays fully usable. For "Send payment reminder".
+    @JavascriptInterface
+    fun showReminder(message: String) {
+        activity.runOnUiThread {
+            try {
+                android.widget.Toast.makeText(ctx, message, android.widget.Toast.LENGTH_LONG).show()
+            } catch (e: Exception) {}
+        }
+        // A toast disappears if the app isn't frontmost, so also fire a
+        // normal notification the customer can see from anywhere.
+        try {
+            val chId = "sc_reminder"
+            val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                nm.createNotificationChannel(
+                    android.app.NotificationChannel(chId, "Payment reminders", android.app.NotificationManager.IMPORTANCE_HIGH)
+                )
+            }
+            val n = androidx.core.app.NotificationCompat.Builder(ctx, chId)
+                .setSmallIcon(android.R.drawable.ic_dialog_alert)
+                .setContentTitle("Installment reminder")
+                .setContentText(message)
+                .setAutoCancel(true)
+                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+                .build()
+            nm.notify(9001, n)
+        } catch (e: Exception) {}
+    }
+
+    // Keeps the most recent lock-screen context on disk so it can still be
+    // shown correctly if the phone is fully offline when it auto-locks.
+    @JavascriptInterface
+    fun cacheLockInfo(json: String) {
+        try {
+            val o = JSONObject(json)
+            ctx.getSharedPreferences("sc_lock_cache", Context.MODE_PRIVATE).edit()
+                .putString("amount", o.optString("amount", ""))
+                .putString("shopName", o.optString("shopName", ""))
+                .putString("custName", o.optString("custName", ""))
+                .putString("dueDate", o.optString("dueDate", ""))
+                .putString("shopPhone", o.optString("shopPhone", ""))
+                .apply()
+        } catch (e: Exception) {}
+    }
+
+    // Overridable from Firestore (devices/{imei}.offlineLockHours); cached
+    // locally because the device is offline exactly when this matters.
+    @JavascriptInterface
+    fun setOfflineLockHours(hours: Int) {
+        try { OfflineWatchdog.setOfflineLockHours(ctx, hours) } catch (e: Exception) {}
+    }
+
+    // Marks "seen online" from the web side too (any successful Firestore
+    // round trip counts, not just the watchdog's own probe).
+    @JavascriptInterface
+    fun markOnline() {
+        try { OfflineWatchdog.markOnlineNow(ctx) } catch (e: Exception) {}
+    }
+
+    // ---- release (EMI fully paid off) ----------------------------------
+
+    // Clears every Device-Owner restriction this app ever set and, where
+    // the OS allows it, drops Device-Owner status itself so the phone is
+    // fully back to normal. This does NOT remove the APK — Android gives
+    // no Device-Owner API to force-uninstall the app that currently *is*
+    // the device owner; the customer (or shop) still taps Uninstall once,
+    // same as any other app, after this call finishes.
+    @JavascriptInterface
+    fun releaseDevice() {
+        if (!isDeviceOwner()) return
+        try { dpm.clearUserRestriction(admin, android.os.UserManager.DISALLOW_UNINSTALL_APPS) } catch (e: Exception) {}
+        try { dpm.clearUserRestriction(admin, android.os.UserManager.DISALLOW_FACTORY_RESET) } catch (e: Exception) {}
+        try { dpm.clearUserRestriction(admin, android.os.UserManager.DISALLOW_SAFE_BOOT) } catch (e: Exception) {}
+        try { dpm.clearUserRestriction(admin, android.os.UserManager.DISALLOW_USB_FILE_TRANSFER) } catch (e: Exception) {}
+        try {
+            for (info in ctx.packageManager.getInstalledApplications(PackageManager.GET_META_DATA)) {
+                try { dpm.setApplicationHidden(admin, info.packageName, false) } catch (e: Exception) {}
+            }
+        } catch (e: Exception) {}
+        try { LocationReportService.stop(ctx) } catch (e: Exception) {}
+        try { LockActivity.dismiss() } catch (e: Exception) {}
+        try { dpm.clearDeviceOwnerApp(ctx.packageName) } catch (e: Exception) {}
     }
 
     // ---- ring ------------------------------------------------------------

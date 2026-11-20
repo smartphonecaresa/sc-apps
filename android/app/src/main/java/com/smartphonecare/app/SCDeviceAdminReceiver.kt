@@ -45,7 +45,8 @@ class SCDeviceAdminReceiver : DeviceAdminReceiver() {
                 android.Manifest.permission.ACCESS_FINE_LOCATION,
                 android.Manifest.permission.ACCESS_COARSE_LOCATION,
                 android.Manifest.permission.ACCESS_BACKGROUND_LOCATION,
-                android.Manifest.permission.CAMERA
+                android.Manifest.permission.CAMERA,
+                android.Manifest.permission.CALL_PHONE
             )) {
                 dpm.setPermissionGrantState(
                     admin, context.packageName, perm,
@@ -53,6 +54,20 @@ class SCDeviceAdminReceiver : DeviceAdminReceiver() {
                 )
             }
         } catch (e: Exception) { /* best-effort */ }
+
+        // Baseline anti-theft restrictions, applied once at enrolment and left
+        // on for the life of the EMI — a customer can still use the phone
+        // normally, these only remove the specific escape hatches that would
+        // let the control app itself be removed or bypassed:
+        //   - DISALLOW_SAFE_BOOT: safe boot disables all 3rd-party apps incl. this one
+        //   - DISALLOW_USB_FILE_TRANSFER: stops flashing/wiping via a PC over USB
+        // (DISALLOW_FACTORY_RESET and DISALLOW_UNINSTALL_APPS are set the same
+        // way the web app already asks for them — see SCBridge.blockFactoryReset
+        // / lockUninstall — this just adds the two that have no existing toggle.)
+        try { dpm.addUserRestriction(admin, android.os.UserManager.DISALLOW_SAFE_BOOT) } catch (e: Exception) {}
+        try { dpm.addUserRestriction(admin, android.os.UserManager.DISALLOW_USB_FILE_TRANSFER) } catch (e: Exception) {}
+
+        try { OfflineWatchdog.schedule(context) } catch (e: Exception) {}
 
         val launch = Intent(context, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

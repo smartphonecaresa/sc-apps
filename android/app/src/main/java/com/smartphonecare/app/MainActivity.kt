@@ -38,6 +38,12 @@ class MainActivity : AppCompatActivity() {
         bridge = SCBridge(this, webView)
         setupWebView()
         requestRuntimePermissionsIfNeeded()
+        // Safety net for phones enrolled before this update: the watchdog is
+        // normally scheduled at Device-Owner provisioning time, but
+        // enqueueUniquePeriodicWork(KEEP) here is a no-op if it's already
+        // running, so this is free to call on every launch.
+        try { OfflineWatchdog.schedule(this) } catch (e: Exception) {}
+        try { OfflineWatchdog.markOnlineNow(this) } catch (e: Exception) {}
 
         val url = savedInstanceState?.getString("url") ?: BuildConfig.HUB_URL
         webView.loadUrl(url)
