@@ -84,6 +84,9 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("com.google.android.gms:play-services-location:21.3.0")
+    // Periodic offline-failsafe watchdog (checks real internet reachability
+    // every ~15 min; auto-locks after N hours with no reachable window).
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
 
     val camerax = "1.3.4"
     implementation("androidx.camera:camera-core:$camerax")

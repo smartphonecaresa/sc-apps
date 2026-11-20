@@ -50,12 +50,37 @@ jobs:
           cp android/app/build/outputs/apk/reseller/release/app-reseller-release.apk dist/SC-Reseller.apk
           ls -la dist
 
+      - name: Signing-certificate checksum (for the Device-Owner QR code)
+        env:
+          SC_KEYSTORE_PASSWORD: ${{ secrets.SC_KEYSTORE_PASSWORD }}
+          SC_KEY_ALIAS: ${{ secrets.SC_KEY_ALIAS }}
+        run: |
+          # Android's provisioning QR wants the SHA-256 of the signing
+          # CERTIFICATE (not the APK file), base64url, no padding — this is
+          # the same for both flavors, they share one keystore/alias.
+          CERT_SHA256=$(keytool -exportcert -alias "$SC_KEY_ALIAS" -keystore android/keystore/sc-release.jks -storepass "$SC_KEYSTORE_PASSWORD" 2>/dev/null \
+            | openssl dgst -binary -sha256 | openssl base64 | tr '+/' '-_' | tr -d '=')
+          echo "cert_sha256=$CERT_SHA256" >> "$GITHUB_OUTPUT"
+          {
+            echo "Signing certificate SHA-256 (base64url, for PROVISIONING_DEVICE_ADMIN_SIGNATURE_CHECKSUM):"
+            echo "$CERT_SHA256"
+            echo ""
+            echo "APK file hashes (sha256sum, for integrity checks only — not the QR value):"
+            sha256sum dist/SC-Shop.apk dist/SC-Reseller.apk
+          } > dist/CHECKSUMS.txt
+          cat dist/CHECKSUMS.txt
+        id: checksum
+
       - name: Publish a release (this is what releases/latest/download/... resolves to)
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
           name: "Device apps build #${{ github.run_number }}"
+          body: |
+            Signing certificate SHA-256 (paste into Platform admin > QR provisioning):
+            ${{ steps.checksum.outputs.cert_sha256 }}
           files: |
             dist/SC-Shop.apk
             dist/SC-Reseller.apk
+            dist/CHECKSUMS.txt
           make_latest: true
