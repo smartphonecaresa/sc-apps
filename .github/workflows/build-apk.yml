@@ -56,12 +56,29 @@ jobs:
           cp android/app/build/outputs/apk/reseller/release/app-reseller-release.apk dist/SC-Reseller.apk
           ls -la dist
 
+      # The web app's "Scan a QR" Device-Owner enrolment needs the signing
+      # certificate's SHA-256 checksum, in the exact base64url/no-padding
+      # form android.app.extra.PROVISIONING_DEVICE_ADMIN_SIGNATURE_CHECKSUM
+      # expects - NOT the colon-hex fingerprint keytool prints by default.
+      # Written here so every release carries it; nothing to compute by hand.
+      - name: Compute the app's signing-certificate checksum (for QR enrolment)
+        env:
+          SC_KEYSTORE_PASSWORD: ${{ secrets.SC_KEYSTORE_PASSWORD }}
+          SC_KEY_ALIAS: ${{ secrets.SC_KEY_ALIAS }}
+        run: |
+          keytool -exportcert -alias "$SC_KEY_ALIAS" -keystore android/app/keystore/sc-release.jks -storepass "$SC_KEYSTORE_PASSWORD" -file dist/sc-release-cert.der
+          CHECKSUM=$(openssl dgst -sha256 -binary dist/sc-release-cert.der | base64 | tr '+/' '-_' | tr -d '=\n')
+          echo "Signing certificate SHA-256 (for QR enrolment): $CHECKSUM" | tee dist/CHECKSUMS.txt
+          rm -f dist/sc-release-cert.der
+
       - name: Publish a release (this is what releases/latest/download/... resolves to)
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
           name: "Device apps build #${{ github.run_number }}"
+          body_path: dist/CHECKSUMS.txt
           files: |
             dist/SC-Shop.apk
             dist/SC-Reseller.apk
+            dist/CHECKSUMS.txt
           make_latest: true
