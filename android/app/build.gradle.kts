@@ -38,6 +38,24 @@ android {
         }
     }
 
+    // Must come before buildTypes below: buildTypes.release looks up
+    // signingConfigs.getByName("release"), and this android {} block is
+    // evaluated top to bottom, so the signingConfigs entry has to already
+    // exist by the time buildTypes reaches for it (was declared after it
+    // before, which failed every CI build with "SigningConfig with name
+    // 'release' not found").
+    signingConfigs {
+        create("release") {
+            val ksPath = System.getenv("SC_KEYSTORE_PATH")
+            if (ksPath != null) {
+                storeFile = file(ksPath)
+                storePassword = System.getenv("SC_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("SC_KEY_ALIAS")
+                keyPassword = System.getenv("SC_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -52,18 +70,6 @@ android {
         }
         debug {
             applicationIdSuffix = ".debug"
-        }
-    }
-
-    signingConfigs {
-        create("release") {
-            val ksPath = System.getenv("SC_KEYSTORE_PATH")
-            if (ksPath != null) {
-                storeFile = file(ksPath)
-                storePassword = System.getenv("SC_KEYSTORE_PASSWORD")
-                keyAlias = System.getenv("SC_KEY_ALIAS")
-                keyPassword = System.getenv("SC_KEY_PASSWORD")
-            }
         }
     }
 
