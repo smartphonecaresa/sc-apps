@@ -30,8 +30,14 @@ jobs:
 
       - name: Decode signing keystore
         run: |
-          mkdir -p android/keystore
-          echo "${{ secrets.SC_KEYSTORE_BASE64 }}" | base64 -d > android/keystore/sc-release.jks
+          # Must land inside android/app/, not android/ - the next step's
+          # SC_KEYSTORE_PATH is relative to the :app module's project dir
+          # (build.gradle.kts resolves file(ksPath) against that), not the
+          # repo root. Putting it one level up ("android/keystore/...")
+          # made Gradle fail with "Keystore file ... not found" even
+          # though the decode itself succeeded.
+          mkdir -p android/app/keystore
+          echo "${{ secrets.SC_KEYSTORE_BASE64 }}" | base64 -d > android/app/keystore/sc-release.jks
 
       - name: Build + sign both flavors
         working-directory: android
